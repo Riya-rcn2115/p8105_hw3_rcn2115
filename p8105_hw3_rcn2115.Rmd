@@ -1,0 +1,336 @@
+---
+title: "p8105_hw3_rcn2115"
+author: "Riya Nadkarni"
+output: github_document
+---
+
+```{r}
+library(tidyverse)
+library(ggridges)
+library(p8105.datasets)
+library(patchwork)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning=FALSE,
+  fig.width = 8,
+  fig.asp = .6,
+  out.width = "90%")
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+```
+
+
+# Problem 1
+
+## Visualizing  Data
+
+```{r }
+data("ny_noaa") 
+print(ny_noaa)
+```
+
+The `ny_noaa` dataset is pulled from the `p8105.datasets` package. It contains weather observations from multiple weather stations across New York State. It contains `r nrow(ny_noaa)` rows and `r ncol(ny_noaa)` columns.This dataset includes the following key variables:
+
+`id`: Weather station ID
+`date`: Date of observation
+`prcp`: Precipitation (tenths of mm)
+`snow`: Snowfall (mm)
+`snwd`: Snow depth (mm)
+`tmax`: Maximum temperature (tenths of degrees C)
+`tmin`: Minimum temperature (tenths of degrees C)
+
+We observe a lot of missing (NA) values in the dataset. Each weather station may collect only a subset of these variables, and therefore the resulting dataset contains extensive missing data.
+
+## Cleaning data
+```{r}
+noaa_clean_df <-ny_noaa %>% 
+janitor::clean_names() %>% 
+  mutate(
+    year = year(date),
+    month = month(date, label = TRUE),
+    day = day(date),
+    tmax = as.numeric(tmax) / 10,  
+    tmin = as.numeric(tmin) / 10,  
+    prcp = prcp / 10   
+  ) %>% 
+  select(-date)
+  print(noaa_clean_df)
+```
+
+## Finding the most commonly observed value for snowfall
+```{r}
+noaa_clean_df %>% 
+  count(snow) %>% 
+  arrange(desc(n))
+```
+
+The most commonly observed value for snowfall is 0 mm as snowfall does not occur daily in most parts of New York throughout the year.
+
+##Making two-panel plots
+
+```{r}
+avg_temp_df = noaa_clean_df %>% 
+  filter(month %in% c("Jan", "Jul")) %>% 
+  group_by(id, year, month) %>% 
+  summarize(avg_tmax = mean(tmax, na.rm = TRUE))
+
+ggplot(avg_temp_df, aes(x = year, y = avg_tmax, group = id)) + geom_point() + geom_path() +
+  facet_grid(. ~ month) +
+  labs(
+    title = "Average Maximum Temperature in January and July by Station across years",
+    x = "Year",
+    y = "Average Maximum Temperature (°C)"
+  ) 
+```
+
+The two-panel plot shows the average maximum temperature in January and July by station from 1980-2010. The average maximum temperature for January (winter) fluctuates between -10°C and 10°C with a few outliers (lowest maximum temperature is -14°C). The average maximum temperatures for June (summer) on the other hand lie between 20°C to 34 °C with a few outliers (14°C). The fluctuation for temperatures in June is less than the fluctuation in temperature in January.
+
+
+```{r}
+tmax_tmin_df <- noaa_clean_df 
+ggplot(tmax_tmin_df, aes(x = tmin, y = tmax)) + 
+  geom_bin2d() +
+  labs(
+    title = "Maximum vs Minimum Temperatures",
+    x = "Minimum Temperature (°C)",
+    y = "Maximum Temperature (°C)"
+  )
+
+tmax_tmin_df
+
+snowfall_df <- noaa_clean_df %>% 
+  filter(snow > 0, snow < 100) %>%  
+  ggplot(aes(x = snow, y = as.factor(year))) +
+  geom_density_ridges() +
+  labs(
+    title = "Distribution of Snowfall (0 < Snow < 100) by Year",
+    x = "Snowfall (mm)",
+    y = "Year"
+  )
+
+snowfall_df
+
+```
+
+The first two-panel plot shows a graph of tmax vs tmin for the entire dataset. The majority of the data cluster tightly in the center of the distribution. 
+
+The second two-panel plot shows the distribution of snowfall (0mm < Snow < 100mm) separately by year.With the majority of snowfall events concentrated around 0-35mm, the ridgeline plot displays a multimodal density of snowfall within a given year as well as distributions across years. The general trends point to a reasonably stable distribution of snowfall totals with some variation from year to year.
+
+#Problem 2
+
+##Loading, Cleaning and Merging data 
+```{r}
+covar_df = read_csv("nhanes_covar.csv", na = c("NA", ".", ""), skip = 4) %>% 
+janitor::clean_names() %>% 
+  filter(age >= 21) %>% 
+  mutate(
+    sex = case_match(
+      sex, 
+      1 ~ "male",
+      2 ~ "female"),
+    education = case_match(
+      education, 
+      1 ~ "less than high school",
+      2 ~ "high school equivalent",
+      3 ~ "more than high school"),
+    age = as.numeric(age),  
+    BMI = as.numeric(bmi)
+  )
+print(covar_df)
+
+accel_df = read_csv("nhanes_accel.csv", na = c("NA", ".", "")) %>% 
+   janitor::clean_names() %>% 
+  pivot_longer(
+    min1:min1440,
+    names_to = "min",
+    values_to = "mims",
+    names_prefix = "min"
+  ) %>% 
+  mutate(
+    min = as.numeric(min)
+  )
+
+print(accel_df)
+
+covar_accel_df = 
+  left_join(
+    covar_df, accel_df, by = c("seqn"))
+```
+ 
+Accelerometer data was collected on 250 participants in the NHANES study. I loaded, tidied, merged, and organized `accel_df` and `covar_df` datasets to create a `covar_accel_df` dataset. `nhanes_covar` contained participants' demographic data and `nhanes_accel` contained their accelerometer data. The final dataset includes all originally observed variables, excludes participants less than 21 years of age and those with missing demographic data, and encodes data with reasonable variable classes (i.e., not numeric, and using factors with the ordering of tables and plots in mind). The combined dataset has `r nrow(covar_accel_df)` rows and `r ncol(covar_accel_df)` columns. 
+
+## Creating a table
+
+```{r}
+covar_accel_df %>% 
+  group_by(sex, education) %>% 
+  distinct(seqn) %>% 
+  summarize(count = n()) %>% 
+  knitr::kable()
+```
+
+The table above shows the number of males and females in each education category.
+
+## Creating a boxplot
+
+```{r}
+covar_accel_df %>% 
+   ggplot(aes(x = education, y = age, fill = sex)) +
+  geom_boxplot() + 
+  labs(title = "Age Distribution by Sex and Education",
+       y = "Age", 
+       x = "Education") 
+str(covar_accel_df)
+```
+
+The boxplot shows the age distribution for males and females in different education categories. In the `less than high school` and `high school equivalent` categories, females have a slightly higher median age compared to males. In the `more than high school` category, the median ages of males are slightly higher than the median ages for females. 
+
+## Creating the total activity variable and plotting it
+```{r}
+totalactivity_df = covar_accel_df %>% 
+  group_by(seqn, age, sex, education) %>% 
+  summarize(totalactivity = sum(mims, na.rm = TRUE))
+
+totalactivity_df %>% 
+  ggplot(aes(x = age, y = totalactivity, color = sex)) +
+  geom_point(alpha=0.5) +
+  geom_smooth(method = "loess", se = FALSE) + 
+  facet_wrap(~ education) +
+  labs(
+    title = "Total Activity vs. Age",
+    x = "Age",
+    y = "Total Activity"
+  ) 
+```
+
+I created a `totalactivity_df` variable for each participant, and plotted these total activities (y-axis) against age (x-axis). The plot compares men to women and has a separate education panel for each education level. Overall activity tends to decline with age across all educational levels. Males and females typically exhibit comparable trends in changes in overall activity as they age within each educational level. With a few minor exceptions, women are generally more active than men overall. 
+
+## Creating a three-panel plot
+
+```{r}
+ggplot(covar_accel_df, aes(x = min, y = mims, group = seqn, color = sex)) +
+  geom_line(alpha = .2) +
+  geom_smooth(aes(group = sex), se = FALSE) +
+  facet_grid(. ~ education) +
+  labs(
+    title = "24-Hour Activity by Education Level and Sex",
+    x = "Minute of Day",
+    y = "Total Activity",
+  )
+```
+
+I made a three-panel plot showing the 24-hour activity time courses for each education level for males and females (males yellow, females violet). For both `less than high school` and `high school equivalent` education levels, males and females show similar activity patterns throughout the day. For `more than high school`,females are more active than males. Those with `more than high school` education show the most heightened physical engagement peaks especially in the late morning and early afternoon with males reaching 100 MIMS closer to afternoon.
+
+#Problem 3
+
+```{r}
+citi_jan2020_df = 
+   read_csv("Jan 2020 Citi.csv", na = c("NA",".","")) %>% 
+  janitor::clean_names() %>% 
+  mutate(year = 2020,
+         month = "January") %>% 
+   relocate(year, month, .before = ride_id)
+
+citi_jan2024_df = 
+   read_csv("Jan 2024 Citi.csv", na = c("NA",".","")) %>% 
+  janitor::clean_names() %>% 
+  mutate(year = 2024,
+         month = "January") %>% 
+   relocate(year, month, .before = ride_id)
+
+citi_july2020_df = 
+   read_csv("July 2020 Citi.csv", na = c("NA",".","")) %>% 
+  janitor::clean_names() %>% 
+  mutate(year = 2020,
+         month = "July") %>% 
+   relocate(year, month, .before = ride_id)
+
+citi_july2024_df = 
+   read_csv("July 2024 Citi.csv", na = c("NA",".","")) %>% 
+  janitor::clean_names() %>% 
+  mutate(year = 2024,
+         month = "July") %>% 
+   relocate(year, month, .before = ride_id)
+
+
+citibike_df = bind_rows(citi_jan2020_df, citi_july2020_df, citi_jan2024_df, citi_july2024_df) %>% 
+  mutate(
+    weekdays = factor(weekdays, levels = c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"), ordered = TRUE))
+```
+
+I merged four datasets that each contained 1% of all NYC Citi Bike system rides with a total duration less than 4 hours in each of the four months (Jan 2020, Jan 2024, July 2020, July 2024). I created `year` and `month` variables to each dataset to understand which dataset each observation came from. The combined dataset has `r nrow(citibike_df)` rows and `r ncol(citibike_df)` columns, and includes the variables `year`, `month`, `ride_id`, `rideable_type`, `weekday`, `duration`, `start_station_name`, `end_station_name`, and `member_casual`. There are a total of `r count(citibike_df)` rides recorded with a mean ride duration of `r mean(pull(citibike_df,duration))`. There are `r citibike_df |> distinct(start_station_name) |> count()` distinct starting stations. 
+
+## Creating tables
+
+```{r}
+table_df = citibike_df %>% 
+  group_by(year, month, member_casual) %>% 
+  summarize(count = n()) %>% 
+  knitr::kable()
+
+table_df
+```
+
+The above table shows the total number of rides in each combination of year and month separating casual riders and Citi Bike members. Each combination of month and year shows that members more frequently ride the bike than casual individuals. There were a lot more riders in 2024 than 2020, with the highest amount of rides in July 2024 and the lowest amount of rides in January 2020. 
+
+```{r}
+pop_july2024_df = citibike_df %>% 
+  filter(month == "July" & year == "2024") %>% 
+  group_by(start_station_name) %>% 
+  summarize(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  head(5) %>% 
+  knitr::kable()
+
+pop_july2024_df
+```
+
+The table above shows the five most popular starting stations for July 2024 and includes the number of rides originating from these stations. 
+
+## Plotting graph
+```{r}
+ride_duration_df = citibike_df %>% 
+  group_by(year, month, weekdays) %>% 
+  mutate(med_duration = median(duration)) %>% 
+  ggplot(aes(x = weekdays, y = med_duration, fill = as.factor(year))) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(~month) + 
+  theme(axis.text = element_text(angle = 45, vjust = 1, hjust = 1))
+
+ride_duration_df
+```
+
+I plotted a bar graph to investigate the effects of day of the week, month, and year on median ride duration. The median duration of bike rides was similar for June and July of 2024. However, in 2020, the median duration of bike rides in July was higher than the median duration of bike rides in June. People rode bikes for a slightly longer duration on the weekends in July of both 2020 and 2024. 
+
+
+```{r}
+
+citibikes2024_df = citibike_df %>% 
+  filter(year == 2024) %>% 
+  ggplot(aes(x = member_casual, y = duration, fill = rideable_type)) +
+  geom_boxplot(outlier.shape = NA) +
+  facet_grid(~ month) +
+    scale_y_continuous(limits = c(0, 50)) + 
+  labs(
+    title = "Distribution of Ride Duration by Month, Membership Status, and Bike Type (2024)",
+    x = "Membership Status",
+    y = "Ride Duration (minutes)",
+    fill = "Bike Type"
+  ) 
+
+citibikes2024_df
+```
+
+The above boxplot shows the distributon of ride duration by month, membership status, and bike type. We observe a large number of outliers across the two groups. Casual bike riders with a classic bike  had a slightly higher ride duration than casual riders with an electric bike for January and July 2024. For July, members with an eletric bike had a higher ride duration than those a classic bike.
